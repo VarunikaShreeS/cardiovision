@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pandas as pd
+import numpy as np
 import joblib
 import shap
 from pathlib import Path
@@ -9,7 +10,7 @@ from pathlib import Path
 app = FastAPI(
     title="CardioVision API",
     description="Multimodal AI-Powered Cardiovascular Decision Support System with SHAP Explainability",
-    version="2.1.0"
+    version="2.2.0"
 )
 
 app.add_middleware(
@@ -34,7 +35,7 @@ try:
     model = joblib.load(MODEL_PATH)
     feature_names = joblib.load(FEATURES_PATH)
     
-    # Load raw data to initialize the SHAP TreeExplainer baseline
+    # Load raw data to initialize the SHAP TreeExplainer baseline safely
     if DATA_PATH.exists():
         df_raw = pd.read_csv(DATA_PATH)
         df_raw.columns = df_raw.columns.str.strip()
@@ -42,7 +43,7 @@ try:
             df_raw['Target'] = df_raw['Cath'].map({'CAD': 1, 'Normal': 0})
             drop_cols = [c for c in ['LAD', 'LCX', 'RCA', 'Cath', 'Target'] if c in df_raw.columns]
             X_bg = pd.get_dummies(df_raw.drop(columns=drop_cols))
-            X_bg = X_bg.reindex(columns=feature_names, fill_value=0)
+            X_bg = X_bg.reindex(columns=feature_names, fill_value=0).astype(float)
             explainer = shap.TreeExplainer(model, X_bg.sample(min(50, len(X_bg)), random_state=42))
             print("✓ SHAP TreeExplainer initialized successfully!")
     else:
@@ -66,14 +67,14 @@ def predict_cardio_risk(data: PatientData):
         if model is None or not feature_names:
             raise HTTPException(status_code=500, detail="Model not loaded properly on startup.")
 
-        # Convert input dictionary to DataFrame
+        # Convert input dictionary to DataFrame & coerce to float
         input_df = pd.DataFrame([data.features])
         
         # Align with training features
         for col in feature_names:
             if col not in input_df.columns:
                 input_df[col] = 0
-        input_df = input_df[feature_names]
+        input_df = input_df[feature_names].astype(float)
         
         # Prediction & Probability
         prediction = int(model.predict(input_df)[0])
