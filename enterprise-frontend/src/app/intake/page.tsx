@@ -17,6 +17,23 @@ export default function IntakePage() {
     if (!formName || !formAge) return;
 
     setIsSubmitting(true);
+
+    // Create a new mock patient object from your inputs
+    const newPatient = {
+      id: `CV-${Math.floor(1000 + Math.random() * 9000)}`,
+      name: formName,
+      age: Number(formAge),
+      blood_pressure: Number(formBP) || 120,
+      cholesterol: Number(formChol) || 200,
+      troponin_i: Number(formTrop) || 0.03,
+      risk_tier: (Number(formTrop) > 0.1 || Number(formBP) > 140) ? "High Risk" : "Moderate Risk",
+      clinical_notes: formNotes || "Standard intake record."
+    };
+
+    // Save to browser LocalStorage as our temporary static database
+    const existingPatients = JSON.parse(localStorage.getItem("customPatients") || "[]");
+    localStorage.setItem("customPatients", JSON.stringify([newPatient, ...existingPatients]));
+    
     setTimeout(() => {
       setIsSubmitting(false);
       router.push("/");

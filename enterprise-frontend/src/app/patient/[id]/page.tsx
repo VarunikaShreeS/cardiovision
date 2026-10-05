@@ -14,20 +14,23 @@ export default function PatientAnalysisPage() {
     fetch("http://127.0.0.1:8000/api/v1/patients")
       .then((res) => res.json())
       .then(async (data) => {
-        const found = data.patients.find((p: any) => p.id === patientId) || data.patients[0];
+        // Merge custom patients with backend patients
+        const customPatients = JSON.parse(localStorage.getItem("customPatients") || "[]");
+        const allPatients = [...customPatients, ...data.patients];
+        
+        // Find the specific patient we clicked on
+        const found = allPatients.find((p: any) => p.id === patientId) || allPatients[0];
 
         const payload = {
           patient_id: found.id,
           vitals: {
             age: found.age,
-            blood_pressure: found.risk_tier === "High Risk" ? 155 : 120,
-            cholesterol: found.risk_tier === "High Risk" ? 280 : 190,
-            troponin_i: found.risk_tier === "High Risk" ? 0.45 : 0.02,
+            blood_pressure: found.blood_pressure || (found.risk_tier === "High Risk" ? 155 : 120),
+            cholesterol: found.cholesterol || (found.risk_tier === "High Risk" ? 280 : 190),
+            troponin_i: found.troponin_i || (found.risk_tier === "High Risk" ? 0.45 : 0.02),
             heart_rate: 88
           },
-          clinical_notes: found.risk_tier === "High Risk" 
-            ? "Patient reports severe exertional chest pain radiating to the left arm." 
-            : "Routine checkup. No acute distress reported.",
+          clinical_notes: found.clinical_notes || "Routine checkup.",
           ecg_waveform_id: `ECG-${found.id}`
         };
 

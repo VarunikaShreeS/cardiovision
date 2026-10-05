@@ -9,7 +9,12 @@ export default function Dashboard() {
   useEffect(() => {
     fetch("http://127.0.0.1:8000/api/v1/patients")
       .then((res) => res.json())
-      .then((data) => setPatients(data.patients))
+      .then((data) => {
+        // Pull our newly created patients from LocalStorage
+        const customPatients = JSON.parse(localStorage.getItem("customPatients") || "[]");
+        // Combine them so the custom ones appear at the top of the roster
+        setPatients([...customPatients, ...data.patients]);
+      })
       .catch((err) => console.error("Error:", err));
   }, []);
 
