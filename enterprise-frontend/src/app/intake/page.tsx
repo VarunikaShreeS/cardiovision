@@ -18,7 +18,6 @@ export default function IntakePage() {
 
     setIsSubmitting(true);
 
-    // Create a new mock patient object from your inputs
     const newPatient = {
       id: `CV-${Math.floor(1000 + Math.random() * 9000)}`,
       name: formName,
@@ -30,7 +29,6 @@ export default function IntakePage() {
       clinical_notes: formNotes || "Standard intake record."
     };
 
-    // Save to browser LocalStorage as our temporary static database
     const existingPatients = JSON.parse(localStorage.getItem("customPatients") || "[]");
     localStorage.setItem("customPatients", JSON.stringify([newPatient, ...existingPatients]));
     

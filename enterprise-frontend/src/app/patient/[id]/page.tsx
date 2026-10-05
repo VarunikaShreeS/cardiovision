@@ -14,11 +14,9 @@ export default function PatientAnalysisPage() {
     fetch("http://127.0.0.1:8000/api/v1/patients")
       .then((res) => res.json())
       .then(async (data) => {
-        // Merge custom patients with backend patients
         const customPatients = JSON.parse(localStorage.getItem("customPatients") || "[]");
         const allPatients = [...customPatients, ...data.patients];
         
-        // Find the specific patient we clicked on
         const found = allPatients.find((p: any) => p.id === patientId) || allPatients[0];
 
         const payload = {
@@ -40,7 +38,12 @@ export default function PatientAnalysisPage() {
           body: JSON.stringify(payload)
         });
         const result = await res.json();
-        setAnalysis({ ...result, patientName: found.name, patientAge: found.age });
+        setAnalysis({ 
+          ...result, 
+          patientName: found.name, 
+          patientAge: found.age,
+          photo: found.photo
+        });
         setLoading(false);
       })
       .catch((err) => {
@@ -63,11 +66,16 @@ export default function PatientAnalysisPage() {
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm flex justify-between items-center">
           <div>
-            <button onClick={() => router.push("/")} className="text-xs font-bold text-rose-600 hover:underline mb-1 block">
+            <button onClick={() => router.push("/")} className="text-xs font-bold text-rose-600 hover:underline mb-2 block">
               ← Back to Triage Roster
             </button>
-            <h1 className="text-3xl font-black text-slate-800">
-              {analysis.patientName} <span className="text-slate-400 font-light text-lg ml-2">ID: {patientId}</span>
+            <h1 className="text-3xl font-black text-slate-800 flex items-center">
+              <img 
+                src={analysis.photo || `https://ui-avatars.com/api/?name=${analysis.patientName}&background=random`} 
+                alt={analysis.patientName} 
+                className="w-12 h-12 rounded-full border-2 border-slate-200 shadow-sm mr-4 object-cover" 
+              />
+              {analysis.patientName} <span className="text-slate-400 font-light text-lg ml-3">ID: {patientId}</span>
             </h1>
           </div>
           <button onClick={() => window.print()} className="bg-slate-800 hover:bg-slate-700 text-white text-sm font-bold py-2.5 px-5 rounded-xl shadow transition">

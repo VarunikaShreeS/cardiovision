@@ -10,13 +10,16 @@ export default function Dashboard() {
     fetch("http://127.0.0.1:8000/api/v1/patients")
       .then((res) => res.json())
       .then((data) => {
-        // Pull our newly created patients from LocalStorage
         const customPatients = JSON.parse(localStorage.getItem("customPatients") || "[]");
-        // Combine them so the custom ones appear at the top of the roster
         setPatients([...customPatients, ...data.patients]);
       })
       .catch((err) => console.error("Error:", err));
   }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem("userRole");
+    router.push("/login");
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
@@ -34,9 +37,12 @@ export default function Dashboard() {
           >
             + New Patient Intake Page
           </button>
-          <span className="text-xs bg-blue-100 text-blue-800 font-semibold px-3 py-1 rounded-full">
-            Multi-Page Architecture v3.2
-          </span>
+          <button 
+            onClick={handleLogout}
+            className="bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold px-4 py-2 rounded-lg transition"
+          >
+            Sign Out
+          </button>
         </div>
       </header>
 
@@ -56,8 +62,15 @@ export default function Dashboard() {
               onClick={() => router.push(`/patient/${p.id}`)}
               className="bg-white p-6 border border-slate-200 rounded-2xl hover:shadow-lg hover:border-rose-300 cursor-pointer transition-all group"
             >
-              <div className="flex justify-between items-center mb-3">
-                <span className="font-bold text-lg text-slate-800 group-hover:text-rose-600 transition">{p.name}</span>
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center space-x-3">
+                  <img 
+                    src={p.photo || `https://ui-avatars.com/api/?name=${p.name}&background=random`} 
+                    alt={p.name} 
+                    className="w-10 h-10 rounded-full border border-slate-200 object-cover shadow-sm"
+                  />
+                  <span className="font-bold text-lg text-slate-800 group-hover:text-rose-600 transition">{p.name}</span>
+                </div>
                 <span className="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-1 rounded">{p.id}</span>
               </div>
               <div className="flex justify-between items-center text-sm text-slate-500 mb-4">
