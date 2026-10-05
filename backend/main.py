@@ -1,16 +1,13 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import pandas as pd
-import numpy as np
-import joblib
-import shap
-from pathlib import Path
+from typing import List, Optional
+import datetime
 
 app = FastAPI(
-    title="CardioVision API",
-    description="Multimodal AI-Powered Cardiovascular Decision Support System with SHAP Explainability",
-    version="2.2.0"
+    title="CardioVision Enterprise API",
+    description="Multimodal Cardiovascular Decision Support System - Blueprint Phase",
+    version="3.0.0"
 )
 
 app.add_middleware(
@@ -21,103 +18,79 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Paths
-MODEL_PATH = Path("backend/models/xgboost_cad_model.joblib")
-FEATURES_PATH = Path("backend/models/feature_names.joblib")
-DATA_PATH = Path("data/raw/z_alizadeh_sani.csv")
+# ==========================================
+# DATA SCHEMAS (The Blueprint)
+# ==========================================
+class Vitals(BaseModel):
+    age: int
+    blood_pressure: int
+    cholesterol: int
+    troponin_i: float
+    heart_rate: int
 
-# Initialize global variables
-model = None
-feature_names = []
-explainer = None
+class MultimodalInput(BaseModel):
+    patient_id: str
+    vitals: Vitals
+    clinical_notes: str
+    ecg_waveform_id: Optional[str] = None
 
-try:
-    model = joblib.load(MODEL_PATH)
-    feature_names = joblib.load(FEATURES_PATH)
-    
-    # Load raw data to initialize the SHAP TreeExplainer baseline safely
-    if DATA_PATH.exists():
-        df_raw = pd.read_csv(DATA_PATH)
-        df_raw.columns = df_raw.columns.str.strip()
-        if 'Cath' in df_raw.columns:
-            df_raw['Target'] = df_raw['Cath'].map({'CAD': 1, 'Normal': 0})
-            drop_cols = [c for c in ['LAD', 'LCX', 'RCA', 'Cath', 'Target'] if c in df_raw.columns]
-            X_bg = pd.get_dummies(df_raw.drop(columns=drop_cols))
-            X_bg = X_bg.reindex(columns=feature_names, fill_value=0).astype(float)
-            explainer = shap.TreeExplainer(model, X_bg.sample(min(50, len(X_bg)), random_state=42))
-            print("✓ SHAP TreeExplainer initialized successfully!")
-    else:
-        print("⚠️ Data path not found, running without SHAP background explainer.")
-        
-    print("✓ Model and features loaded successfully into FastAPI!")
-except Exception as e:
-    print(f"❌ Error during startup initialization: {e}")
-
-class PatientData(BaseModel):
-    features: dict
+# ==========================================
+# ENDPOINTS
+# ==========================================
 
 @app.get("/")
 def home():
-    return {"status": "CardioVision Backend with SHAP is live and running! 🚀"}
+    return {"status": "CardioVision Enterprise Blueprint API is live! 🚀"}
 
-@app.post("/predict")
-def predict_cardio_risk(data: PatientData):
-    try:
-        global model, feature_names, explainer
-        if model is None or not feature_names:
-            raise HTTPException(status_code=500, detail="Model not loaded properly on startup.")
+@app.get("/api/v1/patients")
+def get_patient_roster():
+    """Returns a mock list of patients for the triage dashboard."""
+    return {
+        "patients": [
+            {"id": "CV-8942", "name": "John Doe", "age": 58, "last_visit": "2026-10-01", "risk_tier": "High Risk", "pending_review": True},
+            {"id": "CV-2109", "name": "Sarah Jenkins", "age": 42, "last_visit": "2026-10-04", "risk_tier": "Low Risk", "pending_review": False},
+            {"id": "CV-5531", "name": "Michael Chang", "age": 65, "last_visit": "2026-10-05", "risk_tier": "Moderate Risk", "pending_review": True},
+        ]
+    }
 
-        # Convert input dictionary to DataFrame & coerce to float
-        input_df = pd.DataFrame([data.features])
-        
-        # Align with training features
-        for col in feature_names:
-            if col not in input_df.columns:
-                input_df[col] = 0
-        input_df = input_df[feature_names].astype(float)
-        
-        # Prediction & Probability
-        prediction = int(model.predict(input_df)[0])
-        probability = float(model.predict_proba(input_df)[0][1])
-        risk_level = "High Risk" if probability > 0.5 else "Low Risk"
-        
-        # Generate SHAP Explanations
-        top_factors = []
-        if explainer is not None:
-            try:
-                shap_values = explainer(input_df)
-                vals = shap_values.values
-                if len(vals.shape) == 3:
-                    feature_vals = vals[0, :, 1]
-                else:
-                    feature_vals = vals[0]
-                    
-                impact_df = pd.DataFrame({
-                    "feature": feature_names,
-                    "shap_value": feature_vals,
-                    "user_value": input_df.iloc[0].values
-                })
-                impact_df['abs_impact'] = impact_df['shap_value'].abs()
-                impact_df = impact_df.sort_values(by="abs_impact", ascending=False)
-                
-                for _, row in impact_df.head(3).iterrows():
-                    direction = "increased" if row['shap_value'] > 0 else "decreased"
-                    top_factors.append({
-                        "feature": row['feature'],
-                        "value": row['user_value'],
-                        "impact_direction": direction,
-                        "shap_score": round(float(row['shap_value']), 4)
-                    })
-            except Exception as shap_err:
-                print(f"SHAP calculation warning: {shap_err}")
+@app.post("/api/v1/predict/multimodal")
+def predict_multimodal(data: MultimodalInput):
+    """
+    The core Multimodal Fusion mock endpoint. 
+    Simulates processing Vitals (XGBoost), ECG Signals (1D CNN), and Clinical Notes (NLP).
+    """
+    # 1. Mock Vitals Analysis (Simulating Tabular XGBoost + SHAP)
+    tabular_risk_score = 0.82
+    shap_factors = [
+        {"feature": "Troponin-I", "value": data.vitals.troponin_i, "impact": "High Increase", "shap_val": 0.45},
+        {"feature": "Blood Pressure", "value": data.vitals.blood_pressure, "impact": "Moderate Increase", "shap_val": 0.21},
+    ]
 
-        return {
-            "prediction": prediction,
-            "cad_probability": round(probability * 100, 2),
-            "risk_level": risk_level,
-            "key_factors": top_factors,
-            "message": f"Patient assessed as {risk_level} with {round(probability * 100, 2)}% CAD probability."
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    # 2. Mock ECG Signal Analysis (Simulating 1D CNN / Transformer)
+    ecg_analysis = {
+        "rhythm_classification": "Sinus Tachycardia with ST Elevation",
+        "confidence_score": 0.94,
+        "anomalous_regions": [{"lead": "V4", "start_ms": 400, "end_ms": 600, "finding": "ST-Elevation"}]
+    }
+
+    # 3. Mock Clinical Text NLP (Simulating BioBERT / LLM Extraction)
+    extracted_symptoms = ["exertional chest pain", "shortness of breath"] if len(data.clinical_notes) > 10 else []
+    
+    # 4. Mock Fusion Logic (Combining all three modalities)
+    fusion_probability = 88.5  # Synthesized final CAD risk %
+    
+    # 5. Automated AI Clinical Summary
+    ai_summary = f"Patient {data.patient_id} exhibits high fusion risk ({fusion_probability}%). Elevated Troponin ({data.vitals.troponin_i} ng/mL) and ECG ST-Elevation strongly suggest acute myocardial ischemia. Immediate cardiology consult recommended."
+
+    return {
+        "patient_id": data.patient_id,
+        "timestamp": datetime.datetime.now().isoformat(),
+        "fusion_cad_probability": fusion_probability,
+        "risk_level": "Critical / High Risk",
+        "breakdown": {
+            "tabular_explainability": shap_factors,
+            "ecg_findings": ecg_analysis,
+            "nlp_extracted_symptoms": extracted_symptoms
+        },
+        "ai_clinical_summary": ai_summary
+    }
