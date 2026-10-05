@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 export default function IntakePage() {
@@ -11,6 +11,14 @@ export default function IntakePage() {
   const [formTrop, setFormTrop] = useState("");
   const [formNotes, setFormNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    // SECURITY GUARD: Only cardiologists can access intake
+    const role = localStorage.getItem("userRole");
+    if (role !== "cardiologist") {
+      router.push("/login");
+    }
+  }, [router]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

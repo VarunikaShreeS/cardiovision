@@ -11,6 +11,13 @@ export default function PatientAnalysisPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // SECURITY GUARD: Check authentication before loading
+    const role = localStorage.getItem("userRole");
+    if (!role) {
+      router.push("/login");
+      return;
+    }
+
     fetch("http://127.0.0.1:8000/api/v1/patients")
       .then((res) => res.json())
       .then(async (data) => {
@@ -50,7 +57,12 @@ export default function PatientAnalysisPage() {
         console.error("Error:", err);
         setLoading(false);
       });
-  }, [patientId]);
+  }, [patientId, router]);
+
+  const handleLogout = () => {
+    localStorage.removeItem("userRole");
+    router.push("/login");
+  };
 
   if (loading) {
     return (
@@ -78,9 +90,14 @@ export default function PatientAnalysisPage() {
               {analysis.patientName} <span className="text-slate-400 font-light text-lg ml-3">ID: {patientId}</span>
             </h1>
           </div>
-          <button onClick={() => window.print()} className="bg-slate-800 hover:bg-slate-700 text-white text-sm font-bold py-2.5 px-5 rounded-xl shadow transition">
-            📄 Export Clinical PDF Report
-          </button>
+          <div className="flex space-x-3">
+            <button onClick={() => window.print()} className="bg-slate-800 hover:bg-slate-700 text-white text-sm font-bold py-2.5 px-5 rounded-xl shadow transition">
+              📄 Export Clinical PDF Report
+            </button>
+            <button onClick={handleLogout} className="bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-bold py-2.5 px-5 rounded-xl transition">
+              Sign Out
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

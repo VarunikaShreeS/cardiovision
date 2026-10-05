@@ -7,6 +7,18 @@ export default function Dashboard() {
   const [patients, setPatients] = useState<any[]>([]);
 
   useEffect(() => {
+    // SECURITY GUARD: Check authentication before loading
+    const role = localStorage.getItem("userRole");
+    if (!role) {
+      router.push("/login");
+      return;
+    }
+    if (role === "patient") {
+      router.push("/patient/CV-8942"); // Patients cannot see the roster
+      return;
+    }
+
+    // Fetch patients if authentication passes
     fetch("http://127.0.0.1:8000/api/v1/patients")
       .then((res) => res.json())
       .then((data) => {
@@ -14,7 +26,7 @@ export default function Dashboard() {
         setPatients([...customPatients, ...data.patients]);
       })
       .catch((err) => console.error("Error:", err));
-  }, []);
+  }, [router]);
 
   const handleLogout = () => {
     localStorage.removeItem("userRole");
