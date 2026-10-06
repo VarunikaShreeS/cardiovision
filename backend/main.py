@@ -1,18 +1,42 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 
 from database import engine, get_db
-from db_models import Base, Patient
+from db_models import Base, Patient, User
 
-# Create database tables automatically on startup
+# Security Configurations
+SECRET_KEY = "cardiovision_super_secret_enterprise_key_2026"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Create database tables and seed default users automatically on startup
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="CardioVision Enterprise API", version="3.2")
+def seed_default_users():
+    db = SessionLocal = next(get_db())
+    existing_user = db.query(User).filter(User.username == "doctor").first()
+    if not existing_user:
+        hashed_pw = pwd_context.hash("securepassword123")
+        doc_user = User(username="doctor", hashed_password=hashed_pw, role="cardiologist", full_name="Dr. Vincent Vance")
+        pat_user = User(username="patient", hashed_password=pwd_context.hash("patient123"), role="patient", full_name="John Doe")
+        db.add(doc_user)
+        db.add(pat_user)
+        db.commit()
+    db.close()
 
-# Enable CORS so Next.js frontend can communicate with Python backend
+seed_default_users()
+
+app = FastAPI(title="CardioVision Enterprise API", version="3.3")
+
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,7 +45,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Pydantic Schemas for Validation ---
+# --- Pydantic Schemas ---
 class PatientCreate(BaseModel):
     id: str
     name: str
@@ -39,31 +63,61 @@ class PredictionRequest(BaseModel):
     clinical_notes: str
     ecg_waveform_id: str
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+# --- Auth Helpers ---
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
 # --- API Endpoints ---
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "message": "CardioVision Enterprise Backend is running with SQLite!"}
+    return {"status": "online", "message": "CardioVision Secure Enterprise Backend is running with JWT Auth!"}
+
+@app.post("/api/v1/auth/login")
+def login(form_data: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == form_data.username).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username, "role": user.role}, expires_delta=access_token_expires
+    )
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "role": user.role,
+        "full_name": user.full_name
+    }
 
 @app.get("/api/v1/patients")
 def get_patients(db: Session = Depends(get_db)):
     patients = db.query(Patient).all()
-    
-    # If database is empty, seed initial demo patients automatically
     if not patients:
         default_patients = [
-            Patient(id="CV-4154", name="vinoth", age=99, blood_pressure=160, cholesterol=290, troponin_i=0.52, risk_tier="High Risk", clinical_notes="Severe chest pain reported.", photo=None),
-            Patient(id="CV-5989", name="vishwa", age=23, blood_pressure=115, cholesterol=175, troponin_i=0.01, risk_tier="Moderate Risk", clinical_notes="Routine athletic screening.", photo=None),
-            Patient(id="CV-8338", name="Aqueel", age=50, blood_pressure=145, cholesterol=240, troponin_i=0.15, risk_tier="High Risk", clinical_notes="Hypertension history.", photo=None),
-            Patient(id="CV-8942", name="John Doe", age=58, blood_pressure=150, cholesterol=260, troponin_i=0.35, risk_tier="High Risk", clinical_notes="Shortness of breath upon exertion.", photo=None),
-            Patient(id="CV-2109", name="Sarah Jenkins", age=42, blood_pressure=110, cholesterol=180, troponin_i=0.02, risk_tier="Low Risk", clinical_notes="Annual physical checkup.", photo=None),
-            Patient(id="CV-5531", name="Michael Chang", age=65, blood_pressure=138, cholesterol=220, troponin_i=0.08, risk_tier="Moderate Risk", clinical_notes="Controlled blood pressure, mild fatigue.", photo=None)
+            Patient(id="CV-4154", name="vinoth", age=99, blood_pressure=160, cholesterol=290, troponin_i=0.52, risk_tier="High Risk", clinical_notes="Severe chest pain reported."),
+            Patient(id="CV-5989", name="vishwa", age=23, blood_pressure=115, cholesterol=175, troponin_i=0.01, risk_tier="Moderate Risk", clinical_notes="Routine athletic screening."),
+            Patient(id="CV-8338", name="Aqueel", age=50, blood_pressure=145, cholesterol=240, troponin_i=0.15, risk_tier="High Risk", clinical_notes="Hypertension history."),
+            Patient(id="CV-8942", name="John Doe", age=58, blood_pressure=150, cholesterol=260, troponin_i=0.35, risk_tier="High Risk", clinical_notes="Shortness of breath upon exertion."),
         ]
         for p in default_patients:
             db.add(p)
         db.commit()
         patients = db.query(Patient).all()
-
     return {"patients": patients}
 
 @app.post("/api/v1/patients")
@@ -72,17 +126,7 @@ def create_patient(patient_data: PatientCreate, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=400, detail="Patient ID already exists.")
     
-    new_patient = Patient(
-        id=patient_data.id,
-        name=patient_data.name,
-        age=patient_data.age,
-        blood_pressure=patient_data.blood_pressure,
-        cholesterol=patient_data.cholesterol,
-        troponin_i=patient_data.troponin_i,
-        risk_tier=patient_data.risk_tier,
-        clinical_notes=patient_data.clinical_notes,
-        photo=patient_data.photo
-    )
+    new_patient = Patient(**patient_data.dict())
     db.add(new_patient)
     db.commit()
     db.refresh(new_patient)
@@ -104,16 +148,10 @@ def predict_multimodal(payload: PredictionRequest):
     elif cad_probability > 40:
         risk_level = "Moderate Risk - Cardiology Consultation Advised"
 
-    summary = (
-        f"Multimodal AI fusion analysis for patient (Age {age}, BP {bp} mmHg, Troponin {troponin} ng/mL). "
-        f"Evaluated via deep EHR text parsing and vital-sign modeling. "
-        f"Computed CAD probability is {cad_probability}%. {risk_level}."
-    )
-
     return {
         "patient_id": payload.patient_id,
         "fusion_cad_probability": cad_probability,
         "risk_level": risk_level,
-        "ai_clinical_summary": summary,
+        "ai_clinical_summary": f"Multimodal analysis completed. Computed CAD probability is {cad_probability}%. {risk_level}.",
         "status": "success"
     }

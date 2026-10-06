@@ -1,135 +1,181 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export default function IntakePage() {
   const router = useRouter();
-  const [formName, setFormName] = useState("");
-  const [formAge, setFormAge] = useState("");
-  const [formBP, setFormBP] = useState("");
-  const [formChol, setFormChol] = useState("");
-  const [formTrop, setFormTrop] = useState("");
-  const [formNotes, setFormNotes] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+
+  // Form State
+  const [formData, setFormData] = useState({
+    name: "",
+    age: "",
+    blood_pressure: "",
+    cholesterol: "",
+    troponin_i: "",
+    clinical_notes: "",
+    risk_tier: "Low Risk",
+  });
 
   useEffect(() => {
-    // SECURITY GUARD: Only cardiologists can access intake
-    const role = localStorage.getItem("userRole");
-    if (role !== "cardiologist") {
+    const token = localStorage.getItem("token");
+    if (!token) {
       router.push("/login");
+    } else {
+      setIsAuthorized(true);
     }
   }, [router]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName || !formAge) return;
+    setLoading(true);
+    setError("");
+    setSuccess(false);
 
-    setIsSubmitting(true);
+    const token = localStorage.getItem("token");
 
-    const newPatient = {
-      id: `CV-${Math.floor(1000 + Math.random() * 9000)}`,
-      name: formName,
-      age: Number(formAge),
-      blood_pressure: Number(formBP) || 120,
-      cholesterol: Number(formChol) || 200,
-      troponin_i: Number(formTrop) || 0.03,
-      risk_tier: (Number(formTrop) > 0.1 || Number(formBP) > 140) ? "High Risk" : "Moderate Risk",
-      clinical_notes: formNotes || "Standard intake record."
+    // Generate a random ID like CV-4829
+    const generatedId = `CV-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const payload = {
+      id: generatedId, // <-- Added this to satisfy FastAPI!
+      name: formData.name,
+      age: parseInt(formData.age, 10),
+      blood_pressure: formData.blood_pressure,
+      cholesterol: parseFloat(formData.cholesterol),
+      troponin_i: parseFloat(formData.troponin_i),
+      risk_tier: formData.risk_tier,
+      clinical_notes: formData.clinical_notes,
     };
 
-    const existingPatients = JSON.parse(localStorage.getItem("customPatients") || "[]");
-    localStorage.setItem("customPatients", JSON.stringify([newPatient, ...existingPatients]));
-    
-    setTimeout(() => {
-      setIsSubmitting(false);
-      router.push("/");
-    }, 800);
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/v1/patients", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        let errorMessage = "Failed to add patient record.";
+        if (data && data.detail) {
+          if (Array.isArray(data.detail)) {
+             errorMessage = data.detail.map((err: any) => `${err.loc[err.loc.length - 1]}: ${err.msg}`).join(" | ");
+          } else {
+             errorMessage = data.detail;
+          }
+        }
+        throw new Error(errorMessage);
+      }
+
+      setSuccess(true);
+      setTimeout(() => {
+        router.push("/");
+      }, 1500);
+    } catch (err: any) {
+      setError(err.message || "Network error occurred.");
+    } finally {
+      setLoading(false);
+    }
   };
 
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center text-[#131b2e] font-bold">
+        Verifying Secure Session...
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-8">
-      <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
-        <div className="flex justify-between items-center mb-6 border-b pb-4">
-          <div>
-            <h1 className="text-2xl font-black text-slate-800">🏥 Clinical Patient Intake</h1>
-            <p className="text-sm text-slate-500 mt-1">Register a new patient into the CardioVision Multimodal Triage pipeline.</p>
-          </div>
+    <div className="min-h-screen bg-slate-50 p-8 font-sans">
+      <div className="max-w-3xl mx-auto space-y-6">
+        
+        <div className="bg-white rounded-[32px] p-8 shadow-sm border border-slate-200">
           <button 
-            onClick={() => router.push("/")}
-            className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg transition"
+            onClick={() => router.push("/")} 
+            className="text-[#f40632] hover:text-[#d4052c] text-xs font-bold uppercase tracking-wider mb-4 flex items-center gap-2 transition-colors"
           >
-            ← Back to Roster
+            ← Cancel & Return to Roster
           </button>
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">📝</span>
+            <div>
+              <h1 className="text-2xl font-extrabold text-[#131b2e] tracking-tight">New Patient Intake</h1>
+              <p className="text-slate-500 text-sm font-medium mt-1">Enter clinical vitals to generate a new multimodal assessment.</p>
+            </div>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wider">Patient Full Name</label>
-              <input 
-                type="text" required placeholder="e.g. Dr. Eleanor Vance" 
-                value={formName} onChange={(e) => setFormName(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-rose-500 outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wider">Age</label>
-              <input 
-                type="number" required placeholder="e.g. 58" 
-                value={formAge} onChange={(e) => setFormAge(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-rose-500 outline-none"
-              />
-            </div>
-          </div>
+        <div className="bg-white rounded-[32px] p-8 shadow-lg border border-slate-200">
+          {error && <div className="mb-6 p-4 bg-red-50 text-red-600 border border-red-200 rounded-xl text-sm font-bold break-words">{error}</div>}
+          {success && <div className="mb-6 p-4 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-xl text-sm font-bold flex items-center gap-2">✅ Patient successfully added! Redirecting...</div>}
 
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wider">Blood Pressure</label>
-              <input 
-                type="number" placeholder="120" value={formBP} onChange={(e) => setFormBP(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-rose-500 outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wider">Cholesterol</label>
-              <input 
-                type="number" placeholder="200" value={formChol} onChange={(e) => setFormChol(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-rose-500 outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wider">Troponin-I</label>
-              <input 
-                type="number" step="0.01" placeholder="0.03" value={formTrop} onChange={(e) => setFormTrop(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-rose-500 outline-none"
-              />
-            </div>
-          </div>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#131b2e] mb-2">Patient Full Name</label>
+                <input required type="text" name="name" value={formData.name} onChange={handleChange} placeholder="e.g. Jane Doe" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:border-[#f40632] focus:ring-1 focus:ring-[#f40632] transition-all text-sm" />
+              </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wider">Clinical Notes (EHR Text)</label>
-            <textarea 
-              rows={4} placeholder="Enter patient symptoms or physician remarks..."
-              value={formNotes} onChange={(e) => setFormNotes(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-rose-500 outline-none resize-none"
-            />
-          </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#131b2e] mb-2">Age</label>
+                <input required type="number" name="age" value={formData.age} onChange={handleChange} placeholder="e.g. 58" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:border-[#f40632] focus:ring-1 focus:ring-[#f40632] transition-all text-sm" />
+              </div>
 
-          <div className="flex justify-end space-x-4 pt-4 border-t">
-            <button 
-              type="button" onClick={() => router.push("/")}
-              className="px-6 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition"
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#131b2e] mb-2">Blood Pressure</label>
+                <input required type="text" name="blood_pressure" value={formData.blood_pressure} onChange={handleChange} placeholder="e.g. 120/80" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:border-[#f40632] focus:ring-1 focus:ring-[#f40632] transition-all text-sm" />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#131b2e] mb-2">Cholesterol (mg/dL)</label>
+                <input required type="number" step="any" name="cholesterol" value={formData.cholesterol} onChange={handleChange} placeholder="e.g. 195" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:border-[#f40632] focus:ring-1 focus:ring-[#f40632] transition-all text-sm" />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#131b2e] mb-2">Troponin I (ng/mL)</label>
+                <input required type="number" step="any" name="troponin_i" value={formData.troponin_i} onChange={handleChange} placeholder="e.g. 0.02" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:border-[#f40632] focus:ring-1 focus:ring-[#f40632] transition-all text-sm" />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#131b2e] mb-2">Manual Triage Tier</label>
+                <select name="risk_tier" value={formData.risk_tier} onChange={handleChange} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:border-[#f40632] focus:ring-1 focus:ring-[#f40632] transition-all text-sm">
+                  <option value="Low Risk">Low Risk</option>
+                  <option value="Moderate Risk">Moderate Risk</option>
+                  <option value="High Risk">High Risk</option>
+                </select>
+              </div>
+
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-[#131b2e] mb-2">Clinical Observations</label>
+              <textarea required name="clinical_notes" value={formData.clinical_notes} onChange={handleChange} placeholder="Enter presenting symptoms, history, etc..." rows={4} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 focus:outline-none focus:border-[#f40632] focus:ring-1 focus:ring-[#f40632] transition-all text-sm resize-none"></textarea>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || success}
+              className="w-full bg-[#131b2e] hover:bg-[#1a253f] text-white font-bold py-4 rounded-xl transition-all shadow-md text-sm disabled:opacity-50 mt-4"
             >
-              Cancel
+              {loading ? "Saving Record..." : success ? "Record Saved!" : "Submit Patient Record"}
             </button>
-            <button 
-              type="submit" disabled={isSubmitting}
-              className="px-6 py-2.5 text-sm font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow transition"
-            >
-              {isSubmitting ? "Processing..." : "Complete Registration & Run AI 🚀"}
-            </button>
-          </div>
-        </form>
+          </form>
+
+        </div>
       </div>
     </div>
   );
