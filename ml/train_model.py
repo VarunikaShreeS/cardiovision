@@ -1,53 +1,69 @@
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from xgboost import XGBClassifier
-from sklearn.metrics import accuracy_score
+import os
 import joblib
-from pathlib import Path
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, roc_auc_score
+from xgboost import XGBClassifier
 
-# Set up our file paths
-data_path = Path("data/raw/z_alizadeh_sani.csv")
-model_dir = Path("backend/models")
-model_dir.mkdir(parents=True, exist_ok=True) # Creates the backend folders automatically
+# 1. Define paths based on your folder structure
+DATA_PATH = os.path.join("..", "data", "raw", "z_alizadeh_sani.csv")
+MODEL_DIR = os.path.join("..", "backend", "models")
+os.makedirs(MODEL_DIR, exist_ok=True)
 
-def train_pipeline():
-    print("🚀 Initializing CardioVision Training Pipeline...\n")
+print("Loading dataset...")
+df = pd.read_csv(DATA_PATH)
+
+# 2. Define Targets and Prevent Leakage
+# The dataset uses 'Cath' for overall CAD status, and LAD/LCX/RCA for specific vessels.
+targets = ['Cath', 'LAD', 'LCX', 'RCA']
+
+# Map text labels to binary (1 = Disease/Stenotic, 0 = Normal)
+df['Cath'] = df['Cath'].apply(lambda x: 1 if x.strip().lower() == 'cad' else 0)
+for vessel in ['LAD', 'LCX', 'RCA']:
+    df[vessel] = df[vessel].apply(lambda x: 1 if x.strip().lower() == 'stenotic' else 0)
+
+# Drop targets from the feature set to prevent target leakage (Crucial Hackathon Requirement)
+X = df.drop(columns=targets)
+y = df[targets]
+
+# 3. Preprocess Categorical Features
+# Convert text columns (like 'Male'/'Female', 'Typical Angina') into numerical dummy variables
+X = pd.get_dummies(X, drop_first=True)
+
+# Save feature names for the FastAPI backend and SHAP dashboard
+feature_names = X.columns.tolist()
+joblib.dump(feature_names, os.path.join(MODEL_DIR, "feature_names.joblib"))
+
+# 4. Train the Models
+models = {}
+print("\nTraining XGBoost Models...")
+
+for target in targets:
+    print(f"--- Training {target} Model ---")
+    X_train, X_test, y_train, y_test = train_test_split(X, y[target], test_size=0.2, random_state=42, stratify=y[target])
     
-    # 1. Load Data
-    df = pd.read_csv(data_path)
-    df.columns = df.columns.str.strip()
+    # Initialize XGBoost
+    model = XGBClassifier(
+        n_estimators=100, 
+        max_depth=4, 
+        learning_rate=0.1, 
+        random_state=42, 
+        use_label_encoder=False, 
+        eval_metric='logloss'
+    )
     
-    # 2. Prepare the Target (Cath column contains 'CAD' and 'Normal')
-    # We map 'CAD' to 1 (Positive) and 'Normal' to 0 (Negative)
-    df['Target'] = df['Cath'].map({'CAD': 1, 'Normal': 0})
-    y = df['Target']
-    
-    # 3. Drop Target Leakage Columns
-    # If the AI sees these, it will cheat! We must remove them.
-    leakage_cols = ['LAD', 'LCX', 'RCA', 'Cath', 'Target']
-    X = df.drop(columns=leakage_cols)
-    
-    # 4. Process Categorical Data (Turns text like 'Male'/'Female' into numbers for the AI)
-    X_encoded = pd.get_dummies(X)
-    
-    # 5. Split Data (80% for training, 20% for testing)
-    X_train, X_test, y_train, y_test = train_test_split(X_encoded, y, test_size=0.2, random_state=42)
-    print(f"Training on {len(X_train)} patients, testing on {len(X_test)} patients...")
-    
-    # 6. Train XGBoost Model
-    model = XGBClassifier(random_state=42, eval_metric='logloss')
     model.fit(X_train, y_train)
     
-    # 7. Evaluate Performance
-    predictions = model.predict(X_test)
-    accuracy = accuracy_score(y_test, predictions)
-    print(f"\n🏆 Model Training Complete!")
-    print(f"🎯 Accuracy on unseen test patients: {accuracy * 100:.2f}%\n")
+    # Evaluate
+    preds = model.predict(X_test)
+    probs = model.predict_proba(X_test)[:, 1]
+    acc = accuracy_score(y_test, preds)
+    auc = roc_auc_score(y_test, probs)
+    print(f"Accuracy: {acc:.3f} | ROC-AUC: {auc:.3f}")
     
-    # 8. Save the Model and Feature Names for the Backend
-    joblib.dump(model, model_dir / "xgboost_cad_model.joblib")
-    joblib.dump(list(X_encoded.columns), model_dir / "feature_names.joblib")
-    print(f"💾 Model files successfully saved to: {model_dir}")
+    models[target] = model
 
-if __name__ == "__main__":
-    train_pipeline()
+# 5. Export Models to Backend
+print("\nExporting models to backend/models directory...")
+joblib.dump(models, os.path.join(MODEL_DIR, "xgboost_vessel_models.joblib"))
+print("✅ Training complete. Pipeline saved successfully.")
